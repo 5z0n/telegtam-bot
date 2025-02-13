@@ -1,37 +1,58 @@
-import telebot
-import yt_dlp
 import os
+import yt_dlp
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
-# قراءة التوكن من متغير البيئة
-TOKEN = os.getenv("TOKEN")
-bot = telebot.TeleBot(TOKEN)
+# ضع توكن البوت هنا
+TOKEN = "7527297788:AAFmpBRr_fO4RoP-VNmes2Fkd9lnewxhwYE"
 
-# رسالة الترحيب
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "مرحبًا! أرسل لي رابط الفيديو لتحميله 🎥")
+# دالة تحميل الفيديو
+async def download_video(url: str) -> str:
+    """تحميل الفيديو وإرجاع مساره."""
+    output_path = "downloads/%(title)s.%(ext)s"
+    ydl_opts = {
+        "outtmpl": output_path,
+        "format": "best",
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+    return filename
 
-# معالجة الروابط وتحميل الفيديو
-@bot.message_handler(func=lambda message: True)
-def download_video(message):
-    url = message.text
-    bot.reply_to(message, "جاري تحميل الفيديو، يرجى الانتظار ⏳...")
+# دالة استقبال الرابط من المستخدم
+async def handle_message(update: Update, context: CallbackContext) -> None:
+    """استقبال الرابط وتحميل الفيديو."""
+    url = update.message.text.strip()
+    chat_id = update.message.chat_id
+
+    if "http" not in url:
+        await update.message.reply_text("🚫 الرجاء إرسال رابط صالح للفيديو.")
+        return
+
+    await update.message.reply_text("⏳ جاري تحميل الفيديو، انتظر قليلًا...")
+
     try:
-        # إعدادات yt-dlp
-        ydl_opts = {
-            'outtmpl': 'videos/%(title)s.%(ext)s',  # حفظ الفيديو في مجلد videos
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video_title = info.get('title', 'video')
-            video_path = f"videos/{video_title}.mp4"
-
-        # إرسال الفيديو إلى المستخدم
-        with open(video_path, 'rb') as video:
-            bot.send_video(message.chat.id, video)
-
+        video_path = await download_video(url)
+        await update.message.reply_video(video=open(video_path, "rb"))
+        os.remove(video_path)  # حذف الفيديو بعد الإرسال
     except Exception as e:
-        bot.reply_to(message, f"حدث خطأ أثناء تحميل الفيديو: {e}")
+        await update.message.reply_text(f"❌ حدث خطأ أثناء التحميل: {e}")
 
-# تشغيل البوت
-bot.polling()
+# دالة بدء البوت
+async def start(update: Update, context: CallbackContext) -> None:
+    """إرسال رسالة ترحيبية عند بدء البوت."""
+    await update.message.reply_text("👋 ما تحمل سكس يا كسم انتا.")
+
+# إعداد البوت
+def main():
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("✅ البوت يعمل...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    os.makedirs("downloads", exist_ok=True)  # إنشاء مجلد التخزين إذا لم يكن موجودًا
+    main()
